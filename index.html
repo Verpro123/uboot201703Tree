@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>U-Boot 2017.03 思维导图 - IMX6ULL</title>
+<style>
+:root { --bg:#1a1a2e; --panel:#16213e; --red:#e94560; --yellow:#ffd93d; --green:#6bcb77; --blue:#4d96ff; --border:#2a2a4a; --text:#ccc; }
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+
+/* 顶栏 */
+.header{background:var(--panel);padding:10px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);flex-shrink:0;z-index:100}
+.header h1{font-size:20px;font-weight:700;background:linear-gradient(135deg,var(--red),#ff6b6b);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.header .subtitle{font-size:12px;color:#888;margin-left:10px}
+.tabs{display:flex;gap:3px}
+.tab-btn{padding:7px 14px;background:#0f3460;color:#aaa;border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:13px;transition:all 0.25s;white-space:nowrap}
+.tab-btn:hover{color:#fff;border-color:var(--red)}
+.tab-btn.active{background:var(--red);color:#fff;border-color:var(--red)}
+
+/* 主区域 */
+.main-container{flex:1;position:relative;overflow:hidden}
+.mm-panel{display:none;width:100%;height:100%;position:absolute;top:0;left:0}
+.mm-panel.active{display:block}
+.mm-panel svg{width:100%;height:100%;cursor:grab}
+.mm-panel svg:active{cursor:grabbing}
+
+/* 工具栏 */
+.toolbar{position:absolute;bottom:16px;right:16px;display:flex;gap:6px;z-index:50}
+.tool-btn{width:36px;height:36px;border-radius:8px;background:var(--panel);border:1px solid var(--border);color:#ccc;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all 0.2s;backdrop-filter:blur(10px)}
+.tool-btn:hover{background:var(--red);border-color:var(--red);color:#fff;transform:scale(1.08)}
+.legend{position:absolute;bottom:16px;left:16px;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:11px;z-index:50;backdrop-filter:blur(10px);line-height:1.7}
+.legend span.dot{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:middle}
+.legend .hot{background:var(--red)}.legend .warm{background:var(--yellow)}.legend .cool{background:var(--green)}.legend .info{background:var(--blue)}
+.search-bar{position:absolute;top:60px;right:16px;z-index:50;display:flex;gap:5px}
+.search-bar input{width:180px;padding:6px 12px;border-radius:16px;border:1px solid var(--border);background:var(--panel);color:#fff;font-size:12px;outline:none;backdrop-filter:blur(10px)}
+.search-bar input:focus{border-color:var(--blue)}
+.search-bar input::placeholder{color:#666}
+
+@media(max-width:768px){.header{flex-direction:column;gap:6px;padding:6px 10px}.header h1{font-size:16px}.tabs{flex-wrap:wrap;justify-content:center}.tab-btn{padding:5px 10px;font-size:11px}}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div><h1>U-Boot 2017.03 源码架构思维导图</h1><span class="subtitle">IMX6ULL Pro · ARMv7 Cortex-A7</span></div>
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchMap(0)">完整目录架构</button>
+    <button class="tab-btn" onclick="switchMap(1)">启动流程核心链</button>
+    <button class="tab-btn" onclick="switchMap(2)">功能模块依赖</button>
+    <button class="tab-btn" onclick="switchMap(3)">驱动层展开</button>
+    <button class="tab-btn" onclick="switchMap(4)">CPU架构图谱</button>
+  </div>
+</div>
+
+<div class="main-container" id="mainContainer">
+  <!-- 5 个面板由 JS 动态创建 -->
+</div>
+
+<div class="toolbar">
+  <button class="tool-btn" title="放大" onclick="zoomAll(1.2)">➕</button>
+  <button class="tool-btn" title="缩小" onclick="zoomAll(0.8)">➖</button>
+  <button class="tool-btn" title="重置视图" onclick="fitAll()">🔄</button>
+</div>
+
+<div class="search-bar">
+  <input type="text" id="searchInput" placeholder="🔍 搜索节点（回车高亮）..." onkeydown="if(event.key==='Enter')searchNodes()">
+</div>
+
+<div class="legend">
+  <div><span class="dot hot"></span> 汇编启动 · 关键代码</div>
+  <div><span class="dot warm"></span> C 初始化框架</div>
+  <div><span class="dot cool"></span> 主循环/命令/passive</div>
+  <div><span class="dot info"></span> 内核启动/其他</div>
+  <div style="color:#888">💡 滚轮翻页 | 拖拽平移 | Ctrl+滚轮缩放</div>
+</div>
+
+<script>
+// ============================================================
+//  思维导图渲染引擎 (纯 SVG, 零依赖)
+// ============================================================
+
+const COLORS = {
+  red:    ['#e94560','#ff6b6b','rgba(233,69,96,0.18)'],
+  yellow: ['#ffd93d','#ffe680','rgba(255,217,61,0.13)'],
+  green:  ['#6bcb77','#8de898','rgba(107,203,119,0.13)'],
+  blue:   ['#4d96ff','#80b3ff','rgba(77,150,255,0.13)'],
+  purple: ['#b482ff','#c4a0ff','rgba(180,130,255,0.13)'],
+  teal:   ['#50c8c8','#80dcdc','rgba(80,200,200,0.13)'],
+  orange: ['#ff9630','#ffb870','rgba(255,150,48,0.13)'],
+  pink:   ['#ff6b9d','#ff99bb','rgba(255,107,157,0.13)'],
+};
+
+// ==================== 树节点定义 ====================
+// { id, label, color?, focus?, indent? }
+// ==================== 面板0：完整目录架构 ====================
+const tree0 = {
+  id:'root', label:'U-Boot 2017.03\n源码架构', color:'red', children:[
+    { id:'cfg', label:'📄 配置入口 configs/', color:'blue', children:[
+      { label:'mx6ull_14x14_evk_defconfig ← 默认板级配置', focus:1 },
+      { label:'mx6ull_14x14_evk_emmc_defconfig' },
+      { label:'mx6ull_14x14_evk_nand_defconfig' },
+      { label:'mx6ull_9x9_evk_defconfig / 其他...' },
+    ]},
+    { id:'arch', label:'🧱 架构层 arch/', color:'red', children:[
+      { label:'① cpu/ — 按 ARM 内核版本分层', color:'red', children:[
+        { label:'arm920t/  arm926ejs/   arm1136/   arm1176/' },
+        { label:'armv7/ ← Cortex-A7/A8/A9/A15', focus:1, children:[
+          { label:'start.S ← 🔴 上电第一条指令!', focus:1 },
+          { label:'lowlevel_init.S ← SOC 底层初始化' },
+          { label:'cp15.c  cache_v7.c ← CP15+Cache' },
+          { label:'mx6/soc.c  mx6/clock.c ← i.MX6 SoC', focus:1 },
+        ]},
+        { label:'armv7m/ ← Cortex-M3/M4' },
+        { label:'armv8/ ← Cortex-A53/A57 (64位)' },
+      ]},
+      { label:'② imx-common/ — i.MX 系列共用代码', color:'red', children:[
+        { label:'init.c ← 架构初始化' },
+        { label:'timer.c ← 系统定时器 (GPT)', focus:1 },
+        { label:'iomux-v3.c ← IO 复用配置', focus:1 },
+        { label:'hab.c  spl.c  cpu.c  speed.c  video.c' },
+        { label:'⭐ i.MX 不用 mach-xxx，共用代码抽这里', color:'purple' },
+      ]},
+      { label:'③ dts/ — 设备树文件', children:[
+        { label:'imx6ull-14x14-evk.dts ← 你的板子!', focus:1 },
+        { label:'imx6ul-*.dtsi 等共 592 个设备树文件' },
+      ]},
+      { label:'④ include/asm/ — 寄存器地址本', children:[
+        { label:'arch-imx/clock.h ← CCM 时钟寄存器宏', focus:1 },
+        { label:'arch-imx/iomux.h  arch-imx/imx-regs.h' },
+        { label:'arch-mx6/crm_regs.h  ccm_regs.h  iomux.h' },
+        { label:'共 593 个 .h 头文件' },
+      ]},
+      { label:'⑤ lib/ — 基础工具箱', children:[
+        { label:'crt0.S ← 🔴 C 运行时初始化', focus:1 },
+        { label:'cache.c  vectors.S  semihosting.c' },
+      ]},
+      { label:'⑥ mach-xxx/ — 各厂商 SoC 特有代码', children:[
+        { label:'mach-at91/  mach-bcm283x/  mach-exynos/' },
+        { label:'mach-sunxi/  mach-rockchip/  mach-tegra/' },
+        { label:'mach-stm32/  mach-zynq/  mach-omap2/ ...' },
+        { label:'⚠ i.MX 不在 mach-xxx，走 imx-common 路线' },
+      ]},
+      { label:'🧠 口诀: cpu=核心 imx=祖传 dts=拓扑 include=地址本 lib=工具箱 mach=别家', color:'purple' },
+    ]},
+    { id:'board', label:'📋 板级层 board/freescale/', color:'yellow', children:[
+      { label:'mx6ullevk/ ← IMX6ULL EVK 板', color:'yellow', children:[
+        { label:'mx6ullevk.c ← 板级初始化函数', focus:1 },
+        { label:'  board_early_init_f() ← IO/时钟早期配置', indent:1 },
+        { label:'  board_init() ← 外设初始化', indent:1 },
+        { label:'  board_mmc_init() ← MMC/SD 初始化', indent:1 },
+        { label:'imximage.cfg ← DCD 表 (DDR寄存器初始化值!)', focus:1 },
+        { label:'plugin.S  Kconfig  Makefile' },
+      ]},
+      { label:'freescale/common/ ← Freescale 公用代码' },
+      { label:'mx6sabresd/  mx6qsabreauto/  imx8mq_evk/ ...' },
+    ]},
+    { id:'include_h', label:'🧵 头文件层 include/', color:'purple', children:[
+      { label:'configs/mx6ullevk.h ← 板级宏配置 (DDR/外设/启动参数)', focus:1 },
+      { label:'configs/mx6ull_ddr3_arm2.h' },
+      { label:'common.h  command.h  dm.h  fdtdec.h' },
+      { label:'environment.h  image.h  bootm.h  cli.h ...' },
+    ]},
+    { id:'common', label:'⚙️ 通用框架 common/', color:'yellow', children:[
+      { label:'启动框架', color:'yellow', children:[
+        { label:'board_f.c ← 重定位前 (init_sequence_f[])', focus:1 },
+        { label:'board_r.c ← 重定位后 (init_sequence_r[])', focus:1 },
+        { label:'main.c ← main_loop() 主循环', focus:1 },
+        { label:'bootm.c ← 内核镜像启动' },
+        { label:'image.c  image-fit.c  image-fdt.c' },
+      ]},
+      { label:'命令行 CLI: cli.c  cli_readline.c  cli_hush.c' },
+      { label:'环境变量: env_common.c  env_mmc.c  env_fat.c' },
+      { label:'spl/  console.c  stdio.c  autoboot.c ...' },
+    ]},
+    { id:'cmd', label:'📟 命令层 cmd/', color:'green', children:[
+      { label:'启动: bootm.c  boot.c  bootz.c' },
+      { label:'内存: md.c  mm.c  mw.c  cmp.c' },
+      { label:'存储: mmc.c  nand.c  fat.c  ext4.c' },
+      { label:'网络: tftpboot.c  nfs.c  ping.c' },
+      { label:'环境: saveenv  printenv  setenv' },
+    ]},
+    { id:'drivers', label:'🔌 驱动层 drivers/', color:'teal', children:[
+      { label:'mmc/fsl_esdhc.c ← SD/eMMC 驱动', focus:1 },
+      { label:'net/fec_mxc.c ← 网卡驱动', focus:1 },
+      { label:'serial/serial_mxc.c  gpio/mxc_gpio.c' },
+      { label:'i2c/mxc_i2c.c  spi/  usb/  video/  mtd/' },
+      { label:'core/ ← DM 驱动模型核心' },
+    ]},
+    { id:'fs', label:'📂 文件系统 fs/', color:'orange', children:[
+      { label:'ext4/  fat/  jffs2/  ubifs/  cramfs/' },
+    ]},
+    { id:'net', label:'🌐 网络协议 net/', color:'blue', children:[
+      { label:'net.c ← NetLoop() 核心循环' },
+      { label:'tftp.c  nfs.c  ping.c  bootp.c  eth.c' },
+    ]},
+    { id:'lib', label:'📚 通用库 lib/', color:'purple', children:[
+      { label:'crypto/ ← RSA/SHA1/SHA256' },
+      { label:'zlib/  lzo/  lzma/  bzip2/ ← 压缩' },
+      { label:'efi/  fdt/  lmb/' },
+    ]},
+    { id:'tools', label:'🔨 tools/ + scripts/ + 顶层', color:'teal', children:[
+      { label:'mkimage ← 制作 uImage  imximage ← i.MX 启动头' },
+      { label:'Makefile ← 总编译入口', focus:1 },
+      { label:'Kconfig  Kbuild  config.mk  README' },
+    ]},
+  ]
+};
+
+// ==================== 面板1：启动流程核心链 ====================
+const tree1 = {
+  id:'root', label:'启动流程\n核心文件调用链', color:'red', children:[
+    { id:'l0', label:'0️⃣ 编译链接 — Makefile → u-boot.lds', color:'blue', children:[
+      { label:'ARCH=arm  CROSS_COMPILE' },
+      { label:'mx6ull_14x14_evk_defconfig' },
+      { label:'链接脚本 u-boot.lds → 入口 _start', focus:1 },
+    ]},
+    { id:'l1', label:'1️⃣ 汇编启动 — start.S', color:'red', children:[
+      { label:'_start 入口 → SVC模式 → 关FIQ/IRQ', focus:1 },
+      { label:'reset → 关看门狗 → 关MMU → 关Cache → inv TLB', focus:1 },
+      { label:'cpu_init_cp15 → CP15协处理器 → 异常向量基址' },
+      { label:'cpu_init_crit → 跳转 lowlevel_init.S' },
+      { label:'初始化C环境 → 设SP栈 → 清零BSS → 跳转 _main', focus:1 },
+    ]},
+    { id:'l2', label:'2️⃣ C运行时 — crt0.S', color:'red', children:[
+      { label:'调用 board_init_f(&gd)', focus:1 },
+      { label:'重定位: 计算偏移 → 拷贝代码到DDR高地址', focus:1 },
+      { label:'修正重定位表 → 清零新BSS' },
+      { label:'调用 board_init_r(gd, dest)', focus:1 },
+    ]},
+    { id:'l3', label:'3️⃣ 初始化前半段 — board_f.c', color:'yellow', children:[
+      { label:'init_sequence_f[] 依次执行:', focus:1 },
+      { label:'setup_mon_len → initf_malloc → arch_cpu_init', indent:1 },
+      { label:'board_early_init_f ← mx6ullevk.c: UART IO', indent:1, focus:1 },
+      { label:'timer_init → get_clocks → env_init', indent:1 },
+      { label:'init_baud_rate → serial_init → console_init_f', indent:1 },
+      { label:'print_cpuinfo ← 终于开始打印了!', indent:1 },
+      { label:'dram_init ← DDR检测 (依赖 imximage.cfg DCD表)', indent:1, focus:1 },
+      { label:'reserve_xxx → setup_dram_config → setup_reloc', indent:1 },
+    ]},
+    { id:'l4', label:'4️⃣ 重定位过程', color:'red', children:[
+      { label:'拷贝 .text .rodata .data 到 DDR 高地址' },
+      { label:'修正绝对地址引用 (GOT 表)' },
+      { label:'更新 gd 全局数据指针' },
+    ]},
+    { id:'l5', label:'5️⃣ 初始化后半段 — board_r.c', color:'yellow', children:[
+      { label:'init_sequence_r[] 依次执行:', focus:1 },
+      { label:'initr_reloc → initr_caches(使能Cache)', indent:1 },
+      { label:'initr_malloc → initr_dm_devices(DM绑定)', indent:1 },
+      { label:'board_init ← mx6ullevk.c: 外设初始化', indent:1, focus:1 },
+      { label:'initr_mmc ← SD/eMMC (fsl_esdhc驱动)', indent:1, focus:1 },
+      { label:'initr_env ← 从MMC加载环境变量', indent:1 },
+      { label:'console_init_r → interrupt_init → initr_ethaddr', indent:1 },
+      { label:'initr_net ← 网络初始化 (fec_mxc + PHY)', indent:1, focus:1 },
+    ]},
+    { id:'l6', label:'6️⃣ 主循环 — main.c', color:'green', children:[
+      { label:'main_loop() 启动!', focus:1 },
+      { label:'解析 bootdelay → 倒计时 → 检测按键' },
+      { label:'→ 有按键: 进入 CLI Shell (cli.c)' },
+      { label:'→ 无按键: 执行 bootcmd → 自动启动内核', focus:1 },
+    ]},
+    { id:'l7', label:'7️⃣ 内核启动 — bootm.c', color:'blue', children:[
+      { label:'do_bootm() → 解析 uImage/FIT → CRC校验' },
+      { label:'zlib/lzo/lzma → 解压内核', focus:1 },
+      { label:'image-fdt.c → 加载设备树 → fdt_chosen → 拼bootargs' },
+      { label:'设 R0=0 R1=machid R2=DTB地址' },
+      { label:'清理Cache → 关MMU → 跳转内核入口', focus:1 },
+      { label:'▶ kernel_entry(0, machid, dtb) ← 移交控制权!', focus:1 },
+    ]},
+  ]
+};
+
+// ==================== 面板2：功能模块依赖 ====================
+const tree2 = {
+  id:'root', label:'功能模块\n依赖关系', color:'blue', children:[
+    { id:'l0', label:'顶层: Makefile + Kconfig', color:'blue', children:[
+      { label:'ARCH=arm → 板级 defconfig → 链接生成 u-boot.imx', focus:1 },
+    ]},
+    { id:'l1', label:'第1层: 架构启动代码', color:'red', children:[
+      { label:'start.S → 依赖 mx6ullevk.h + arch-imx/ 头文件' },
+      { label:'lowlevel_init.S → i.MX6ULL SOC 级初始化' },
+      { label:'crt0.S → 调用 board_init_f / board_init_r' },
+    ]},
+    { id:'l2', label:'第2层: 板级初始化 mx6ullevk.c', color:'yellow', children:[
+      { label:'board_early_init_f() → iomux-v3.c + mxc_gpio.c' },
+      { label:'board_init() → imx-common/init.c + fec_mxc.c' },
+    ]},
+    { id:'l3', label:'第3层: 通用框架调用链', color:'yellow', children:[
+      { label:'board_f.c → serial_mxc / timer / cpu', focus:1 },
+      { label:'board_r.c → fsl_esdhc / env_mmc / fec_mxc', focus:1 },
+      { label:'main.c → cli → autoboot → bootm', focus:1 },
+      { label:'bootm.c → image.c → zlib → 内核入口', focus:1 },
+    ]},
+    { id:'l4', label:'第4层: 命令执行', color:'green', children:[
+      { label:'U_BOOT_CMD 宏注册 → command.c 查找' },
+      { label:'tftpboot → tftp.c → net.c' },
+      { label:'mmc → mmc.c → fsl_esdhc.c' },
+      { label:'nand → nand_base.c → mxc_nand.c' },
+    ]},
+    { id:'l5', label:'第5层: 驱动模型 DM', color:'teal', children:[
+      { label:'device.c / driver.c / uclass.c / ofnode.c' },
+      { label:'生命周期: bind → probe → remove', focus:1 },
+    ]},
+    { id:'data', label:'数据流', color:'purple', children:[
+      { label:'启动参数: CONFIG_EXTRA_ENV_SETTINGS → bootargs → 内核', focus:1 },
+      { label:'本地镜像: MMC → fs/fat → image.c → 内核入口' },
+      { label:'网络镜像: 网卡 → net/tftp.c → image.c → 内核' },
+    ]},
+  ]
+};
+
+// ==================== 面板3：驱动层展开 ====================
+const tree3 = {
+  id:'root', label:'驱动层\n详细展开 drivers/', color:'teal', children:[
+    { id:'mmc', label:'MMC/SD 子系统', color:'teal', children:[
+      { label:'mmc.c ← 核心框架 (init/read/write/分区)', focus:1 },
+      { label:'fsl_esdhc.c ← i.MX SDHC 控制器驱动', focus:1 },
+      { label:'  esdhc_init  esdhc_send_cmd  esdhc_set_ios', indent:1 },
+      { label:'mmc_write.c ← 写操作' },
+      { label:'依赖: include/mmc.h + 设备树 mmc 节点' },
+    ]},
+    { id:'serial', label:'串口子系统', color:'teal', children:[
+      { label:'serial-uclass.c ← DM 驱动框架封装' },
+      { label:'serial_mxc.c ← i.MX UART 驱动', focus:1 },
+      { label:'  mxc_serial_init / putc / getc / setbrg', indent:1 },
+    ]},
+    { id:'net_drv', label:'网络子系统', color:'teal', children:[
+      { label:'fec_mxc.c ← i.MX FEC 网卡驱动', focus:1 },
+      { label:'  fec_mxc_send / recv / init / halt', indent:1 },
+      { label:'phy/ ← PHY芯片: smsc / atheros / generic_phy' },
+      { label:'上层协议栈: net/net.c NetLoop() → tftp/nfs/ping/bootp' },
+    ]},
+    { id:'gpio', label:'GPIO / I2C / SPI', color:'teal', children:[
+      { label:'gpio/mxc_gpio.c ← direction_input/output/get/set' },
+      { label:'i2c/mxc_i2c.c ← bus_i2c_init/read/write' },
+      { label:'spi/mxc_spi.c + mtd/spi/sf_probe.c ← SPI Flash' },
+    ]},
+    { id:'usb', label:'USB 子系统', color:'teal', children:[
+      { label:'host/ehci-mx6.c ← i.MX EHCI Host' },
+      { label:'gadget/ci_udc.c ← ChipIdea UDC (设备模式)' },
+    ]},
+    { id:'mtd', label:'MTD Flash', color:'teal', children:[
+      { label:'nand/mxc_nand.c  nand/nand_base.c' },
+      { label:'spi/sf_probe.c + sf_ops.c  ubi/' },
+    ]},
+    { id:'other_drv', label:'视频 / 电源 / 时钟 / 看门狗', color:'teal', children:[
+      { label:'video/mxc_ipuv3_fb.c ← IPUv3显示' },
+      { label:'power/pmic/pfuze100.c ← PFUZE PMIC' },
+      { label:'clk/clk-imx6ul.c ← 时钟树驱动' },
+      { label:'watchdog/imx_wdog.c' },
+    ]},
+    { id:'dm', label:'DM 驱动模型核心 drivers/core/', color:'purple', children:[
+      { label:'device.c ← 设备生命周期管理', focus:1 },
+      { label:'driver.c ← 驱动注册 (U_BOOT_DRIVER)' },
+      { label:'uclass.c ← UCLASS 管理' },
+      { label:'ofnode.c ← 设备树节点解析' },
+      { label:'生命周期: ①bind → ②probe → ③remove', focus:1 },
+    ]},
+  ]
+};
+
+// ==================== 面板4：CPU架构图谱 ====================
+const tree4 = {
+  id:'root', label:'CPU 架构\n全景图', color:'red', children:[
+    { id:'arm', label:'🔴 ARM — 王者', color:'red', children:[
+      { label:'厂商: ARM Holdings (英国, 软银旗下)' },
+      { label:'市场: 移动/嵌入式/IoT/汽车 (绝对统治)', focus:1 },
+      { label:'代表: 树莓派 iPhone(苹果A) 高通骁龙 三星Exynos' },
+      { label:'你的芯片: i.MX6ULL (Cortex-A7, ARMv7)', focus:1 },
+      { label:'特点: RISC IP授权模式 低功耗' },
+      { label:'目录规模: 2447文件 (占源码53%)' },
+      { label:'内核版本: ARMv4 ~ ARMv8 (32/64位全覆盖)' },
+    ]},
+    { id:'x86', label:'🔵 x86 — PC霸主', color:'blue', children:[
+      { label:'厂商: Intel / AMD (美国)' },
+      { label:'市场: PC / 服务器 / 工控机' },
+      { label:'U-Boot用途: Chromebook 嵌入式工控x86板' },
+      { label:'特点: CISC 性能强 功耗高 生态最成熟' },
+      { label:'目录规模: 422 文件' },
+    ]},
+    { id:'ppc', label:'🟡 PowerPC — 通信老兵', color:'yellow', children:[
+      { label:'厂商: IBM / NXP (原Freescale)' },
+      { label:'市场: 通信设备/路由器/交换机/汽车ECU' },
+      { label:'代表: MPC83xx/85xx QorIQ P系列' },
+      { label:'特点: U-Boot最早支持的架构之一' },
+      { label:'目录规模: 364 文件' },
+    ]},
+    { id:'mips', label:'🟢 MIPS — 路由器之王', color:'green', children:[
+      { label:'厂商: MIPS Technologies (已没落)' },
+      { label:'代表: MT7621(联发科) Broadcom BCM系列' },
+      { label:'特点: 经典RISC 曾被龙芯采用 现被ARM/RISC-V替代' },
+      { label:'目录规模: 199 文件' },
+    ]},
+    { id:'riscv', label:'🟣 RISC-V — 开源新星', color:'purple', children:[
+      { label:'开源指令集 (RISC-V基金会)', focus:1 },
+      { label:'市场: 🔝 新兴嵌入式/AI加速器/IoT' },
+      { label:'代表: SiFive 香山(中科院) 算能 平头哥(阿里)' },
+      { label:'特点: 开源免费 模块化 无专利壁垒 中国猛追', focus:1 },
+      { label:'U-Boot 2017.03 暂未支持，新版已完整支持' },
+    ]},
+    { id:'bfin', label:'🟠 Blackfin — DSP王者', color:'orange', children:[
+      { label:'厂商: Analog Devices (ADI)' },
+      { label:'特点: MCU+DSP混合 信号处理极强' },
+      { label:'现状: 已停产 ADI转向ARM 目录228文件' },
+    ]},
+    { id:'fpga', label:'🩵 FPGA软核处理器', color:'teal', children:[
+      { label:'MicroBlaze (Xilinx/AMD) — 32位RISC软核 127文件' },
+      { label:'Nios II (Intel/Altera) — FPGA内灵活定制 130文件' },
+    ]},
+    { id:'other', label:'🔷 老牌/小众架构', color:'blue', children:[
+      { label:'AVR32 — Atmel 已停产 (57文件)' },
+      { label:'m68k/ColdFire — Motorola 苹果初代Mac用此 (126文件)' },
+      { label:'SuperH — Renesas 日本汽车电子大量使用 (82文件)' },
+      { label:'SPARC — Sun/Oracle 曾统治工作站 (61文件)' },
+      { label:'NDS32 — 台湾晶心科技 Andes (39文件)' },
+      { label:'ARC — Synopsys DesignWare 配套 (53文件)' },
+      { label:'OpenRISC — 开源RISC前辈 (34文件)' },
+      { label:'Xtensa — ESP32就是这内核! (144文件)', focus:1 },
+    ]},
+    { id:'sandbox', label:'🟢 Sandbox — 虚拟测试', color:'green', children:[
+      { label:'不是真实CPU! 在PC上直接运行U-Boot', focus:1 },
+      { label:'用途: 开发调试/单元测试/CI自动化' },
+      { label:'用法: make sandbox_defconfig && ./u-boot' },
+      { label:'目录规模: 142 文件' },
+    ]},
+    { id:'summary', label:'📊 源码规模排行: 🥇ARM(53%) 🥈x86 🥉PowerPC ④Blackfin ⑤MIPS ...', color:'purple' },
+  ]
+};
+
+// ==================== 渲染引擎 ====================
+const allTrees = [tree0, tree1, tree2, tree3, tree4];
+let currentPanel = 0;
+let svgElements = [];
+let panData = []; // { svg, viewBox:{x,y,w,h}, isPanning, startX, startY, startVB }
+let zoomLevels = [1,1,1,1,1];
+
+const NODE_H = 30, NODE_PAD_X = 20, NODE_PAD_Y = 8, LEVEL_GAP = 360;
+const FONT_SIZE = 13, LEAF_FONT = 11;
+
+function initPanels() {
+  const container = document.getElementById('mainContainer');
+  for (let i = 0; i < 5; i++) {
+    const panel = document.createElement('div');
+    panel.className = 'mm-panel' + (i === 0 ? ' active' : '');
+    panel.id = 'panel-' + i;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    svg.innerHTML = '<defs><filter id="glow"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><g class="viewport" transform="translate(0,0)"></g>';
+    panel.appendChild(svg);
+    container.appendChild(panel);
+    svgElements.push(svg);
+    panData.push({ svg, viewBox:{x:0,y:0,w:0,h:0}, isPanning:false, startX:0, startY:0, startVBX:0, startVBY:0, _g:svg.querySelector('.viewport') });
+    setupPanZoom(svg, i);
+  }
+}
+
+function setupPanZoom(svg, idx) {
+  const pd = panData[idx];
+  // 滚轮 = 上下翻页（Ctrl+滚轮 = 缩放）
+  svg.addEventListener('wheel', e => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.15 : 0.85;
+      zoomLevels[idx] = Math.min(Math.max(zoomLevels[idx] * factor, 0.15), 4);
+      applyZoom(idx, e.offsetX, e.offsetY, factor);
+    } else {
+      e.preventDefault();
+      const speed = 200;
+      pd.viewBox.y += e.deltaY < 0 ? speed : -speed;
+      if (pd._g) pd._g.setAttribute('transform', `translate(${pd.viewBox.x},${pd.viewBox.y}) scale(${zoomLevels[idx]})`);
+    }
+  }, {passive:false});
+  svg.addEventListener('mousedown', e => {
+    pd.isPanning = true;
+    pd.startX = e.clientX;
+    pd.startY = e.clientY;
+    pd.startVBX = pd.viewBox.x;
+    pd.startVBY = pd.viewBox.y;
+    svg.style.cursor = 'grabbing';
+  });
+  window.addEventListener('mousemove', e => {
+    if (!pd.isPanning) return;
+    const dx = (e.clientX - pd.startX) * 3;
+    const dy = (e.clientY - pd.startY) * 3;
+    pd.viewBox.x = pd.startVBX + dx;
+    pd.viewBox.y = pd.startVBY + dy;
+    if (pd._g) pd._g.setAttribute('transform', `translate(${pd.viewBox.x},${pd.viewBox.y}) scale(${zoomLevels[idx]})`);
+  });
+  window.addEventListener('mouseup', () => {
+    if (pd.isPanning) { pd.isPanning = false; svg.style.cursor = 'grab'; }
+  });
+  svg.addEventListener('dblclick', e => {
+    const rect = svg.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) / zoomLevels[idx];
+    const my = (e.clientY - rect.top) / zoomLevels[idx];
+    zoomLevels[idx] = Math.min(zoomLevels[idx] * 1.4, 4);
+    pd.viewBox.x = pd.viewBox.x - mx * 0.4;
+    pd.viewBox.y = pd.viewBox.y - my * 0.4;
+    if (pd._g) pd._g.setAttribute('transform', `translate(${pd.viewBox.x},${pd.viewBox.y}) scale(${zoomLevels[idx]})`);
+  });
+}
+
+function applyZoom(idx, mx, my, factor) {
+  const pd = panData[idx];
+  pd.viewBox.x = pd.viewBox.x - mx * (factor - 1) / zoomLevels[idx];
+  pd.viewBox.y = pd.viewBox.y - my * (factor - 1) / zoomLevels[idx];
+  if (pd._g) pd._g.setAttribute('transform', `translate(${pd.viewBox.x},${pd.viewBox.y}) scale(${zoomLevels[idx]})`);
+}
+
+function zoomAll(factor) {
+  const idx = currentPanel;
+  zoomLevels[idx] = Math.min(Math.max(zoomLevels[idx] * factor, 0.15), 4);
+  const pd = panData[idx];
+  const svg = pd.svg;
+  const rect = svg.getBoundingClientRect();
+  applyZoom(idx, rect.width/2, rect.height/2, factor);
+}
+
+function fitAll() {
+  const idx = currentPanel;
+  zoomLevels[idx] = 1;
+  const pd = panData[idx];
+  pd.viewBox.x = 0; pd.viewBox.y = 0;
+  if (pd._g) pd._g.setAttribute('transform', 'translate(0,0) scale(1)');
+}
+
+// ==================== 树布局计算 ====================
+let _measureCanvas, _measureCtx;
+function getMeasureCtx() {
+  if (!_measureCanvas) { _measureCanvas = document.createElement('canvas'); _measureCtx = _measureCanvas.getContext('2d'); }
+  return _measureCtx;
+}
+function measureText(label, fontSize) {
+  const lines = label.split('\n');
+  let maxW = 0;
+  const ctx = getMeasureCtx();
+  ctx.font = `bold ${fontSize}px "Microsoft YaHei","Segoe UI",sans-serif`;
+  for (const l of lines) maxW = Math.max(maxW, ctx.measureText(l).width);
+  return { w: maxW + NODE_PAD_X * 2, h: lines.length * (fontSize + 2) + NODE_PAD_Y * 2, lines };
+}
+
+function calcLayout(node, depth, isLeaf) {
+  const fSize = isLeaf ? LEAF_FONT : FONT_SIZE;
+  const m = measureText(node.label || '', fSize);
+  node._w = Math.max(m.w, 140);
+  node._h = Math.max(m.h, NODE_H);
+  node._depth = depth;
+  node._children = [];
+  node._totalH = node._h + 8;
+
+  if (node.children && node.children.length > 0) {
+    for (const ch of node.children) {
+      node._children.push(ch);
+      calcLayout(ch, depth + 1, !ch.children || ch.children.length === 0);
+    }
+    if (node._children.length === 1) {
+      node._totalH = node._children[0]._totalH + 10;
+    } else {
+      let sum = 0;
+      for (const ch of node._children) sum += ch._totalH;
+      node._totalH = sum + (node._children.length - 1) * 4;
+    }
+  }
+}
+
+function assignY(node, startY) {
+  node._y = startY + node._totalH / 2 - node._h / 2;
+  if (node._children.length > 0) {
+    let cy = startY;
+    for (const ch of node._children) {
+      assignY(ch, cy);
+      cy += ch._totalH + 4;
+    }
+  }
+}
+
+function runLayout(root) {
+  calcLayout(root, 0, false);
+  assignY(root, 20);
+  let maxRight = 0;
+  function walk(n) {
+    const right = (n._depth) * LEVEL_GAP + n._w;
+    maxRight = Math.max(maxRight, right);
+    if (n._children) for (const c of n._children) walk(c);
+  }
+  walk(root);
+  return { totalW: maxRight + 80, totalH: root._totalH + 40 };
+}
+
+// ==================== SVG 渲染（字符串拼接，一次写入） ====================
+function escapeXml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function buildNodeHtml(node, parentX, parentY, parentH) {
+  const x = node._depth * LEVEL_GAP + 30;
+  const y = node._y;
+  const w = node._w, h = node._h;
+  const isRoot = node._depth === 0;
+  const fSize = (!node.children || node.children.length === 0) ? LEAF_FONT : FONT_SIZE;
+  const measured = measureText(node.label || '', fSize);
+  const lines = measured.lines;
+  const lineH = fSize + 2;
+  const theme = COLORS[node.color] || COLORS.teal;
+
+  let html = '';
+
+  // 连线
+  if (!isRoot && parentX !== undefined) {
+    const px = parentX, py = parentY + parentH / 2;
+    const cx1 = px + (x - px) * 0.45;
+    const cx2 = px + (x - px) * 0.55;
+    html += `<path d="M${px} ${py} C${cx1} ${py} ${cx2} ${y+h/2} ${x} ${y+h/2}" stroke="#3a3a5a" stroke-width="1.5" fill="none"/>`;
+  }
+
+  // 节点背景
+  if (isRoot) {
+    html += `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="22" ry="22" fill="url(#rootGrad)" filter="url(#glow)"/>`;
+  } else {
+    const sw = node.focus ? '2' : '1';
+    html += `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="14" ry="14" fill="${theme[2]}" stroke="${theme[0]}" stroke-width="${sw}"/>`;
+  }
+
+  // 文字
+  const txtColor = isRoot ? '#fff' : (node.focus ? '#fff' : '#ddd');
+  for (let li = 0; li < lines.length; li++) {
+    html += `<text x="${x + w/2}" y="${y + NODE_PAD_Y + fSize + li * lineH}" text-anchor="middle" fill="${txtColor}" font-size="${fSize}" font-weight="${isRoot ? 'bold' : (node.focus ? '600' : 'normal')}" font-family="Microsoft YaHei,Segoe UI,sans-serif" style="pointer-events:none;user-select:none">${escapeXml(lines[li])}</text>`;
+  }
+
+  // 递归子节点（始终展开，无折叠）
+  if (node.children) {
+    for (const ch of node.children) {
+      html += buildNodeHtml(ch, x + w, y, h);
+    }
+  }
+
+  return html;
+}
+
+function renderTree(svg, rootNode, idx) {
+  const layout = runLayout(rootNode);
+  panData[idx].viewBox.w = layout.totalW;
+  panData[idx].viewBox.h = layout.totalH;
+
+  // 构建 SVG 字符串
+  let inner = `<rect class="mm-bg" width="${layout.totalW}" height="${layout.totalH}" fill="transparent"/>`;
+  inner += buildNodeHtml(rootNode);
+
+  const g = svg.querySelector('.viewport');
+  g.innerHTML = `<defs><filter id="glow"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter><linearGradient id="rootGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#e94560"/><stop offset="100%" stop-color="#c0392b"/></linearGradient></defs>` + inner;
+  panData[idx]._g = g;
+
+  svg.setAttribute('viewBox', `0 0 ${layout.totalW} ${layout.totalH}`);
+  panData[idx]._g.setAttribute('transform', `translate(${panData[idx].viewBox.x},${panData[idx].viewBox.y}) scale(${zoomLevels[idx]})`);
+}
+
+// ==================== 面板切换 ====================
+function switchMap(index) {
+  currentPanel = index;
+  document.querySelectorAll('.mm-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-' + index).classList.add('active');
+  document.querySelectorAll('.tab-btn').forEach((b,i) => b.classList.toggle('active', i===index));
+  renderTree(svgElements[index], allTrees[index], index);
+}
+
+// ==================== 全局工具 ====================
+function expandAll() {
+  const root = allTrees[currentPanel];
+  function expand(n, depth) {
+    if (depth <= 2) n._collapsed = false;
+    else n._collapsed = true;
+    if (n.children) for (const c of n.children) expand(c, depth+1);
+  }
+  expand(root, 0);
+  renderTree(svgElements[currentPanel], root, currentPanel);
+}
+
+function collapseAll() {
+  const root = allTrees[currentPanel];
+  function collapse(n, depth) {
+    n._collapsed = depth >= 1;
+    if (n.children) for (const c of n.children) collapse(c, depth+1);
+  }
+  collapse(root, 0);
+  root._collapsed = false;
+  renderTree(svgElements[currentPanel], root, currentPanel);
+}
+
+function searchNodes() {
+  const q = document.getElementById('searchInput').value.trim().toLowerCase();
+  if (!q) return;
+  const root = allTrees[currentPanel];
+  // 展开所有匹配节点的祖先
+  function search(n) {
+    let found = false;
+    if (n.label && n.label.toLowerCase().includes(q)) found = true;
+    if (n.children) {
+      for (const c of n.children) {
+        if (search(c)) { found = true; n._collapsed = false; }
+      }
+    }
+    return found;
+  }
+  root._collapsed = false;
+  for (const c of (root.children||[])) {
+    if (search(c)) c._collapsed = false;
+  }
+  renderTree(svgElements[currentPanel], root, currentPanel);
+}
+
+// ==================== 键盘快捷键 ====================
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  switch(e.key) {
+    case '1': switchMap(0); break;
+    case '2': switchMap(1); break;
+    case '3': switchMap(2); break;
+    case '4': switchMap(3); break;
+    case '5': switchMap(4); break;
+    case 'f': fitAll(); break;
+    case '0': fitAll(); break;
+  }
+});
+
+// ==================== 启动 ====================
+initPanels();
+renderTree(svgElements[0], allTrees[0], 0);
+</script>
+</body>
+</html>
